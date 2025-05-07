@@ -1,0 +1,148 @@
+# Tools may contain aliases or functions
+
+# --- Set some color for nice printing
+#     Use it as: 
+#     echo "This will be ${RED}red${RESET} and this will be ${BLUE}blue${RESET}"
+RED="\033[1;31m"
+GREEN="\033[0;32m"
+YELLOW="\033[1;33m"
+BLUE="\033[1;34m"
+PURPLE="\033[1;35m"
+CYAN="\033[1;36m"
+WHITE="\033[1;37m"
+RESET="\033[0m"
+
+cari () { /usr/bin/find . -iname '*'"$@"'*' ; }
+
+#del () { /usr/bin/find . -iname '*'"$@"'*' -delete ; }
+delx () { /usr/bin/find . -iname "$@" -delete ; }
+
+# Function for backup file into [filename].[DATE] or if Backup folder exist
+# then it will copy the file into Backup/ directory with same file name format
+# It provides time-stamp. This is fast way to make versioning on the spot.
+bck() {
+    _defdir="Backup"
+    _skrg=$(date +"%Y_%m_%d.%H%M%S")
+    if [ -d "$_defdir" ] || [ -L "$_defdir" ] ; then
+        _namafile="$_defdir/$1.$_skrg"
+    else
+        _namafile="$1.$_skrg"
+    fi
+    echo "Backing up file $1 to $_namafile ....... [DONE]"
+    cp $1 $_namafile
+}
+
+# Function for banner
+banner()
+{
+  echo "+------------------------------------------------------------------------+"
+  printf "| %-70s |\n" "`date`"
+  echo "|                                                                        |"
+  printf "|`tput bold` %-70s `tput sgr0`|\n" "$@"
+  echo "+------------------------------------------------------------------------+"
+}
+
+
+#   ii:  display useful host related informaton
+#   -------------------------------------------------------------------
+    ii() {
+        echo -e "\nYou are logged on ${RED}$HOST"
+        echo -e "\nAdditionnal information:$NC " ; uname -a
+        echo -e "\n${RED}Users logged on:$NC " ; w -h
+        echo -e "\n${RED}Current date :$NC " ; date
+        echo -e "\n${RED}Machine stats :$NC " ; uptime
+        echo -e "\n${RED}Current network location :$NC " ; scselect
+        #echo -e "\n${RED}DNS Configuration:$NC " ; scutil --dns
+        echo
+    }
+
+##############################################################################
+# FUNCTION: enc
+# 
+# To encrypt a file (mostly used for storing passwords and all
+#
+enc () {
+  if [ "$#" -eq 0 ] || [ "$#" -gt 2 ] ; then
+	  echo ""
+    echo "Encrypt syntax:"
+		echo "    enc file_input [file_output]"
+		echo "    If file_output is optional, if ommited then it's going to be file_input.enc"
+		echo ""
+		echo "WARNING: this function will overwrite the file_ouput (target)"
+		echo "WARNING: and also DELETE the file_input (source)"
+		return 1
+  fi
+	if [ "$#" -eq 1 ] ; then
+	  _fi="$1"
+	  _fo="$1.enc"
+	else
+		_fi="$1"
+	  _fo="$2"
+	fi
+#	echo "File In = $_fi"
+#	echo "File Out = $_fo"
+  if [ -f "$_fi" ] ; then
+    echo ""
+    echo "Encrypting file: $_fi"
+  	openssl enc -aes-256-cbc -salt -in $_fi -out $_fo
+    if [ $? -eq 0 ] ; then
+      echo "Removing $_fi"
+      rm -rf $_fi
+    fi
+    echo ""
+    echo "File encrypted: $_fo"
+  else 
+	  echo "File $_fi does not exist. Cannot encrypt anything!"
+  fi
+}
+
+
+##############################################################################
+# FUNCTION: dec
+# 
+# To decrypt a file (mostly used for storing passwords and all
+#
+dec () {
+  if [ "$#" -eq 0 ] || [ "$#" -gt 2 ] ; then
+	  echo ""
+    echo "Decrypt syntax:"
+		echo "    dec file_input [file_output]"
+		echo "    If file_output is optional, if ommited then it's going to be file_input.dec"
+		echo "    If file_input is filename.enc, then you can run with just filename as file_input"
+		echo "    without the .enc extension.  Then if file output is ommited, it will be just filename"
+		echo ""
+		echo "WARNING, this function will overwrite the file_ouput"
+		return 1
+  fi
+
+		fin="$1"
+    finame="${fin%.*}"
+    finx="${fin##*.}"
+
+    if [ -f $fin ] ; then
+    	_fi="$fin"
+    	if [ $finx = "enc" ] ; then
+    	  _fo="$finame"
+    	else 
+    	  _fo="$fin.dec"
+    	fi
+    else
+      if [ -f "$fin.enc" ] ; then
+    	  _fi="$fin.enc"
+    		_fo="$fin"
+    	else
+    	  echo "File $fin nor $fin.enc cannot be found. Cannot decrypt!"
+    	  return 1
+    	fi
+    fi
+	if [ "$#" -eq 2 ] ; then
+	  _fo="$2"
+	fi
+#	echo "File In = $_fi"
+#	echo "File Out = $_fo"
+  echo ""
+  echo "Decrypting file: $_fi ..."
+  openssl enc -aes-256-cbc -d -in $_fi -out $_fo
+  echo ""
+  echo "File decrypted: $_fo"
+}

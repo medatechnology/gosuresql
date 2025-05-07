@@ -1,0 +1,336 @@
+# Aliases for git
+alias gits='git status'
+alias gitp='git push'
+alias gitdelbranch='git branch -d'
+alias gitb='git branch'
+alias gitl1='git log --oneline'
+alias gitd='git diff'
+alias gitcred='git config --global credential.helper cache 7200'
+alias gitfp='git fetch && git pull'
+alias gitrestore='git checkout HEAD^ --'
+
+#############
+# DONT'T FORGET TO ADD YOUR NEW ADDED ALIASES BELOW SO YOU CAN REMEMBER!
+#
+GITALIASES=$(cat <<END
+	Yudi's git aliases
+	------------------
+	gits          git status
+	gitp          git push
+	gitdelbranch  Delete branch [branch name]
+	gitb          See all your branches (git branch)
+	gitl1         Git log -oneline
+	gitd          Git diff 
+  gitfp         Git fetch then git pull together
+	gitc          Commit [your message]
+	gitcp         Commit then push to remote (same branch)
+	gitbranchf    Create new branch from another branch
+	gitbdev       Create new branch from develop branch and checkout too
+	gitbmas       Create new branch from master branch and checkout too
+	gitmergepush  Commit & merge your current branch into [target] branch, then push to remote
+	gitmergepdev  Commit & merge your current branch into develop branch, then push to remote
+	gitmergepmas  Commit & merge your current branch into master branch, then push to remote
+	gitsyncdevmas Commit & merge develop to master (without changing version). Then push to remote
+	bumpversion   Bump a version to 1. Takes 1 parameter [1|2|3] for major, minor or patch
+END
+)
+alias gitaliases='echo $GITALIASES'
+
+#############
+# CONSTANTS (basically environment variables)
+_verfile=".version"
+_changefile=".changelog"
+_devbranch="develop"
+_masterbranch="main"
+_origin="origin"
+
+###############
+# Functions for git commit but automatically do git add first
+#
+gitc() {
+  if [ $# -eq 1 ] ; then
+	  banner "git : Adding all files changed"
+    git add .
+	  banner "git : Committing"
+	  git commit -m "$1"
+  else
+	  echo ""
+	  echo "Syntax:"
+		echo "    gitc \"Your comments Here\""
+		return 1
+	fi
+}
+
+###############
+# Functions for git commit but automatically do git add first then PUSH to remote
+#
+gitcp() {
+  gitc "$1"
+	if [ $? -eq 0 ] ; then
+	  curbranch=$(git status | grep "On branch" | awk -F' ' '{ print $3 }')
+	  
+	  banner "git : Push to remote"
+	  gitp "$_origin" "$curbranch"
+	fi
+}
+
+###############
+# Functions gitbrancf: Create branch from another branch
+#
+gitbranchf() {
+  if [ $# -eq 2 ] ; then
+	  banner "git - Create new branch : $1 from $2"
+    git checkout -b $1 $2
+  else
+	  echo "Create new branch from.  It needs 2 parameters"
+	  echo "Syntax:"
+		echo "    gitbranchf [new branch name] [from branch name]"
+		return 1
+	fi
+}
+
+###############
+# Functions create branch from develop($_devbranch)
+#
+gitbdev() {
+  if [ $# -eq 1 ] ; then
+    # No need to echo anything is done from gitbranchf function
+    gitbranchf "$1" "$_devbranch"
+  else
+	  echo "Create new branch from $_devbranch"
+	  echo "Syntax:"
+		echo "    gitbdev [new branch name]"
+		return 1
+	fi
+}
+
+###############
+# Functions create branch from master
+#
+gitbmas() {
+  if [ $# -eq 1 ] ; then
+    # No need to echo anything is done from gitbranchf function
+    gitbranchf "$1" "$_masterbranch"
+  else
+	  echo "Create new branch from master"
+	  echo "Syntax:"
+		echo "    gitbmas [new branch name]"
+		return 1
+	fi
+}
+
+###############
+# Functions: bumpversion
+# This function read file .version and .changelog 
+# This function will overwrite .version and .changelog if exist and
+# will create new ones if they don't exist (make it simple)
+#
+# 1 : Increase Major version by 1 for commit
+# 2 : Increase Minor version by 1 for commit
+# 3 : Increase Patch version by 1 for commit
+# 4 : Doesn't increase the version at all, this is for merge. Only changelog
+bumpversion() {
+    if [ "$#" -eq 2 ]; then
+        # Initialize version file if missing
+        if [ ! -f "$_verfile" ]; then
+            banner "File $_verfile does not exist, creating one"
+            echo "0.1.0" > .version
+        fi
+
+        # Initialize changelog if missing
+        if [ ! -f "$_changefile" ]; then
+            banner "File $_changefile does not exist, creating one"
+            touch .changelog
+        fi
+
+        # Read and parse version - using alternative method without -a
+        _dotver=$(cat $_verfile)
+        _vmajor=$(echo "$_dotver" | cut -d. -f1)
+        _vminor=$(echo "$_dotver" | cut -d. -f2)
+        _vpatch=$(echo "$_dotver" | cut -d. -f3)
+
+        _vsync="Commit: "
+
+        # Get current branch (if in git repo)
+        if git rev-parse --git-dir > /dev/null 2>&1; then
+            curbranch=$(git branch --show-current 2>/dev/null || git rev-parse --abbrev-ref HEAD)
+            _prever="$curbranch."
+        else
+            _prever=""
+        fi
+
+        case $1 in
+            1)  # Major bump
+                _vmajor=$((_vmajor + 1))
+                _vminor=0
+                _vpatch=0
+                echo "Bumping major version from ${_dotver} to ${_vmajor}.${_vminor}.${_vpatch}"
+                ;;
+            2)  # Minor bump
+                _vminor=$((_vminor + 1))
+                _vpatch=0
+                echo "Bumping minor version from ${_dotver} to ${_vmajor}.${_vminor}.${_vpatch}"
+                ;;
+            3)  # Patch bump
+                _vpatch=$((_vpatch + 1))
+                echo "Bumping patch version from ${_dotver} to ${_vmajor}.${_vminor}.${_vpatch}"
+                ;;
+            4)  # No bump (merge)
+                _vsync="Merge: "
+                echo "NO Bumping (sync) version from ${_dotver} to ${_vmajor}.${_vminor}.${_vpatch}"
+                ;;
+            *)  # Invalid option
+                bumpversion
+                return 1
+                ;;
+        esac
+
+        _newver="$_vmajor.$_vminor.$_vpatch"
+        echo "$_newver" > .version
+        echo -e "$_prever$_newver\t$_vsync$2\n$(cat $_changefile)" > $_changefile
+    else
+        echo "Syntax:"
+        echo "    bumpversion [1|2|3|4] \"Your commit message\""
+        echo "    1.2.3 - is Major.Minor.Patch respectively"
+        echo "    1 - Major version bump (X.0.0)"
+        echo "    2 - Minor version bump (x.X.0)"
+        echo "    3 - Patch version bump (x.x.X)"
+        echo "    4 - No version bump (for merges)"
+        echo "numArgs $# >$1 $2 $0"
+    fi
+}
+
+
+###############
+# Functions: commit, merge to [target branch] then push to remote
+# This function can be run even if you are in $_devbranch branch
+gitmergepush() {
+  if [ $# -eq 2 ] ; then
+	  curbranch=$(git status | grep "On branch" | awk -F' ' '{ print $3 }')
+  	
+  	banner "Current Branch : $curbranch"
+    gitcp "$1"
+		# If commit is clean, no file changes, it return code also 1 which could means error
+		# Solution either touch some file (which trigger changes) or include return code 1
+		# as acceptable case : [ $? -eq 0 ] || [ $? -eq 1 ] which also dangerous if commit
+		# is error not because of clean.
+		# MARCH 2020 : Remove the gitcp from this function
+		if [ $? -eq 0 ] ; then
+			_curver=`cat $_verfile`
+#			_prever="$curbranch."
+			_prever="v"
+			git tag -a $_prever$_curver -m "Commit: $1"
+	  	if [ $curbranch = $2 ] ; then
+	  	  banner "Cannot merge to $2 branch because you already are in $2 branch"
+	  	else
+	      banner "git : Move to branch $2 (from your current branch: $curbranch"
+		    git checkout $2
+  	    banner "git : Merge $2 with $curbranch"
+  			git merge --no-ff -m $1 $curbranch
+#				_prever="$2."
+				git tag -a $_prever$_curver -m "Merge : $1"
+				if [ $curbranch = $_devbranch ] ; then
+					banner "git : Best not to delete $_devbranch branch"
+				else
+      	  banner "git : Delete branch $curbranch"
+          git branch -d $curbranch
+				fi
+	  	fi
+	    
+  	  banner "git : Push to remote"
+      git push $_origin $2
+			git push $_origin --tags
+			if [ $2 = $_masterbranch ] ; then
+				banner "git: Back to $_devbranch branch for safety"
+				git checkout $_devbranch
+#				Changed to get back to current branch?
+#				banner "git: Back to $curbranch for safety"
+#				git checkout $curbranch
+			else
+        banner "git : Don't forget to merge $_devbranch with master once you are ready" 
+			fi
+			banner "git : New version $_curver - Tags: $_prever$_curver"
+		else 
+			banner "git: Commit error! this should never happened! Check your code"
+		fi
+  else
+	  echo ""
+	  echo "Merge your branch with [target] branch, PUSH to remote, delete the [current] branch you are on"
+	  echo "Syntax:"
+		echo "    gitmergepush \"Your final merging commit message\" [target]"
+    echo "numArgs $# >$1 $2 $0"
+	fi
+
+}
+
+###############
+# Functions: commit, merge to $_devbranch branch then push to remote
+# This function can be run even if you are in develop branch
+#     This create the function will increase the patch version
+gitmergepdev() {
+  if [ $# -eq 1 ] ; then
+	  bumpversion 3 "$1"
+	  gitmergepush "$1" "$_devbranch"
+	else
+	  echo ""
+	  echo "Commit your branch, merge with $_devbranch branch, PUSH to remote."
+    echo "Increase the patch version"
+	  echo "Syntax:"
+		echo "    gitmergepdev \"Your final merging commit message\""
+	fi
+}
+
+
+###############
+# Functions: commit, merge to $_devbranch branch then push to remote
+# This function can be run even if you are in develop branch
+#     This create the function will increase the patch version
+gitmergepatchpmas() {
+  if [ $# -eq 1 ] ; then
+	  bumpversion 3 "$1"
+	  gitmergepush "$1" "$_masterbranch"
+	else
+	  echo ""
+	  echo "Commit your branch, merge with $_masterbranch branch, PUSH to remote."
+    echo "Increase the patch version"
+	  echo "Syntax:"
+		echo "    gitmergepdev \"Your final merging commit message\""
+	fi
+}
+
+
+###############
+# Functions: commit, merge to master branch then push to remote
+# This function can be run even if you are in develop branch
+#     This create the function will increase the minor version
+gitmergepmas() {
+  if [ $# -eq 1 ] ; then
+    echo "arg1[$1]"
+	  bumpversion 2 "$1"
+	  gitmergepush "$1" "$_masterbranch"
+	else
+    echo ""	  
+	  echo "Commit your branch, merge with develop branch, PUSH to remote."
+    echo "Increase the minor version"
+	  echo "Syntax:"
+		echo "    gitmergepmas \"Your final merging commit message\""
+	fi
+}
+
+###############
+# Functions: commit, merge to master branch then push to remote
+# This function doesn't create a new version, but a new changelog because this
+#    mainly used for merging instead of committing, though commit also runned.
+gitsyncdevmas() {
+  if [ $# -eq 1 ] ; then
+	  bumpversion 4 "$1"
+	  gitmergepush "$1" "$_masterbranch"
+	else
+	  echo "" 
+	  echo "Commit your branch, merge with develop branch, PUSH to remote."
+    echo "Doesn't increase any version, just change log"
+	  echo "Syntax:"
+		echo "    gitsyncdevmas \"Your final merging commit message\""
+	fi
+}
+
