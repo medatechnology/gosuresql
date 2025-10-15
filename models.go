@@ -328,17 +328,16 @@ func NewPoolConfig(options ...PoolConfigOption) *PoolConfig {
 	ttl := utils.GetEnvInt("SURESQL_CONNECTION_TTL", 0)
 	tmpBool, _ := strconv.ParseBool(os.Getenv("SURESQL_NODE_USE_MULTI_CLIENT"))
 
-	config := PoolConfig{
+	config := PoolConfig {
 		MinPoolSize:       utils.GetEnvInt("SURESQL_POOL_MINIMUM", DEFAULT_MINIMUM_POOL_SIZE),
-		MaxPoolSize:       utils.GetEnvInt("SURESQL_POOL_MAXIMUM", DEFAULT_MAXIMUM_POOL_SIZE),             // Will be set from node's MaxPool
-		MaxWritePoolSize:  utils.GetEnvInt("SURESQL_WRITE_POOL_MAXIMUM", DEFAULT_MAXIMUM_WRITE_POOL_SIZE), // for now set from environment
+		MaxPoolSize:       utils.GetEnvInt("SURESQL_POOL_MAXIMUM", DEFAULT_MAXIMUM_POOL_SIZE),
+		MaxWritePoolSize:  utils.GetEnvInt("SURESQL_WRITE_POOL_MAXIMUM", DEFAULT_MAXIMUM_WRITE_POOL_SIZE),
 		ScaleUpThreshold:  utils.GetEnvInt("SURESQL_SCALE_UP_THRESHOLD", DEFAULT_SCALE_UP_TRESHOLD),
 		IdleTimeout:       ValueOrDefault(time.Duration(timeout)*time.Minute, DEFAULT_IDLE_TIMEOUT, DurationBiggerThanZero),
 		ScaleDownInterval: ValueOrDefault(time.Duration(interval)*time.Minute, DEFAULT_SCALE_DOWN_INTERVAL, DurationBiggerThanZero),
 		ConnectionTTL:     ValueOrDefault(time.Duration(ttl)*time.Minute, DEFAULT_CONNECTION_TTL, DurationBiggerThanZero),
 		ScaleUpBatchSize:  utils.GetEnvInt("SURESQL_SCALE_UP_BATCH", DEFAULT_SCALE_UP_BATCH_SIZE),
 		UsageWindowSize:   utils.GetEnvInt("SURESQL_USAGE_WINDOW", DEFAULT_USAGE_WINDOW_SIZE),
-		// New field with default (check environment first, default to false)
 		NodeUseMultiClient: tmpBool,
 	}
 	for _, option := range options {
