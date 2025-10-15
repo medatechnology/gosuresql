@@ -323,21 +323,21 @@ func WithNodeUseMultiClient(useMulti bool) PoolConfigOption {
 
 // NewPoolConfig creates a pool configuration with the specified options
 func NewPoolConfig(options ...PoolConfigOption) *PoolConfig {
-	timeout := object.Int(utils.GetEnv("SURESQL_POOL_IDLE_TIMEOUT", ""), false)
-	interval := object.Int(utils.GetEnv("SURESQL_SCALE_DOWN_INTERVAL", ""), false)
-	ttl := object.Int(utils.GetEnv("SURESQL_CONNECTION_TTL", ""), false)
+	timeout := utils.GetEnvInt("SURESQL_POOL_IDLE_TIMEOUT", 0)
+	interval := utils.GetEnvInt("SURESQL_SCALE_DOWN_INTERVAL", 0)
+	ttl := utils.GetEnvInt("SURESQL_CONNECTION_TTL", 0)
 	tmpBool, _ := strconv.ParseBool(os.Getenv("SURESQL_NODE_USE_MULTI_CLIENT"))
 
 	config := PoolConfig{
-		MinPoolSize:       object.IntPlus(utils.GetEnv("SURESQL_POOL_MINIMUM", ""), DEFAULT_MINIMUM_POOL_SIZE),
-		MaxPoolSize:       object.IntPlus(utils.GetEnv("SURESQL_POOL_MAXIMUM", ""), DEFAULT_MAXIMUM_POOL_SIZE),             // Will be set from node's MaxPool
-		MaxWritePoolSize:  object.IntPlus(utils.GetEnv("SURESQL_WRITE_POOL_MAXIMUM", ""), DEFAULT_MAXIMUM_WRITE_POOL_SIZE), // for now set from environment
-		ScaleUpThreshold:  object.IntPlus(utils.GetEnv("SURESQL_SCALE_UP_THRESHOLD", ""), DEFAULT_SCALE_UP_TRESHOLD),
+		MinPoolSize:       utils.GetEnvInt("SURESQL_POOL_MINIMUM", DEFAULT_MINIMUM_POOL_SIZE),
+		MaxPoolSize:       utils.GetEnvInt("SURESQL_POOL_MAXIMUM", DEFAULT_MAXIMUM_POOL_SIZE),             // Will be set from node's MaxPool
+		MaxWritePoolSize:  utils.GetEnvInt("SURESQL_WRITE_POOL_MAXIMUM", DEFAULT_MAXIMUM_WRITE_POOL_SIZE), // for now set from environment
+		ScaleUpThreshold:  utils.GetEnvInt("SURESQL_SCALE_UP_THRESHOLD", DEFAULT_SCALE_UP_TRESHOLD),
 		IdleTimeout:       ValueOrDefault(time.Duration(timeout)*time.Minute, DEFAULT_IDLE_TIMEOUT, DurationBiggerThanZero),
 		ScaleDownInterval: ValueOrDefault(time.Duration(interval)*time.Minute, DEFAULT_SCALE_DOWN_INTERVAL, DurationBiggerThanZero),
 		ConnectionTTL:     ValueOrDefault(time.Duration(ttl)*time.Minute, DEFAULT_CONNECTION_TTL, DurationBiggerThanZero),
-		ScaleUpBatchSize:  object.IntPlus(utils.GetEnv("SURESQL_SCALE_UP_BATCH", ""), DEFAULT_SCALE_UP_BATCH_SIZE),
-		UsageWindowSize:   object.IntPlus(utils.GetEnv("SURESQL_USAGE_WINDOW", ""), DEFAULT_USAGE_WINDOW_SIZE),
+		ScaleUpBatchSize:  utils.GetEnvInt("SURESQL_SCALE_UP_BATCH", ""), DEFAULT_SCALE_UP_BATCH_SIZE),
+		UsageWindowSize:   utils.GetEnvInt("SURESQL_USAGE_WINDOW", ""), DEFAULT_USAGE_WINDOW_SIZE),
 		// New field with default (check environment first, default to false)
 		NodeUseMultiClient: tmpBool,
 	}
