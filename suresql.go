@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"time"
+	"os"
 
 	utils "github.com/medatechnology/goutil"
 	"github.com/medatechnology/goutil/object"
@@ -30,7 +31,10 @@ const (
 
 // Initialized the client package, loading environment file(s)
 func init() {
-	utils.ReloadEnvEach(DEFAULT_ENVIRONMENT_FILE)
+	_, err := os.Stat(DEFAULT_ENVIRONMENT_FILE)
+	if err == nil {
+		utils.ReloadEnvEach(DEFAULT_ENVIRONMENT_FILE)
+	}
 	// serverURL := utils.GetEnv("SURESQL_SERVER_URL", "http://localhost:8080")
 	// apiKey := utils.GetEnv("SURESQL_API_KEY", "development_api_key")
 	// clientID := utils.GetEnv("SURESQL_CLIENT_ID", "development_client_id")
