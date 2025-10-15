@@ -336,8 +336,8 @@ func NewPoolConfig(options ...PoolConfigOption) *PoolConfig {
 		IdleTimeout:       ValueOrDefault(time.Duration(timeout)*time.Minute, DEFAULT_IDLE_TIMEOUT, DurationBiggerThanZero),
 		ScaleDownInterval: ValueOrDefault(time.Duration(interval)*time.Minute, DEFAULT_SCALE_DOWN_INTERVAL, DurationBiggerThanZero),
 		ConnectionTTL:     ValueOrDefault(time.Duration(ttl)*time.Minute, DEFAULT_CONNECTION_TTL, DurationBiggerThanZero),
-		ScaleUpBatchSize:  utils.GetEnvInt("SURESQL_SCALE_UP_BATCH", ""), DEFAULT_SCALE_UP_BATCH_SIZE),
-		UsageWindowSize:   utils.GetEnvInt("SURESQL_USAGE_WINDOW", ""), DEFAULT_USAGE_WINDOW_SIZE),
+		ScaleUpBatchSize:  utils.GetEnvInt("SURESQL_SCALE_UP_BATCH", DEFAULT_SCALE_UP_BATCH_SIZE),
+		UsageWindowSize:   utils.GetEnvInt("SURESQL_USAGE_WINDOW", DEFAULT_USAGE_WINDOW_SIZE),
 		// New field with default (check environment first, default to false)
 		NodeUseMultiClient: tmpBool,
 	}
