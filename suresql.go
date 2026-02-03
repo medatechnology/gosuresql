@@ -3,14 +3,20 @@ package client
 import (
 	"errors"
 	"fmt"
-	"time"
 	"os"
+	"time"
 
 	utils "github.com/medatechnology/goutil"
 	"github.com/medatechnology/goutil/object"
 	orm "github.com/medatechnology/simpleorm"
 	"github.com/medatechnology/suresql"
 )
+
+// Migrate runs schema migrations from the specified directory
+func (c *Client) Migrate(dir string) error {
+	ms := NewMigrationService(c)
+	return ms.Migrate(dir)
+}
 
 const (
 	DEFAULT_ENVIRONMENT_FILE = ".env.client"
