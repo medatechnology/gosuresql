@@ -1,13 +1,13 @@
 package client
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"time"
 
 	utils "github.com/medatechnology/goutil"
-	"github.com/medatechnology/goutil/object"
 	orm "github.com/medatechnology/simpleorm"
 	"github.com/medatechnology/suresql"
 )
@@ -73,7 +73,6 @@ func (c *Client) Connect(username, password string) error {
 	c.leaderConn.LastRefresh = time.Now()
 	c.Connected = true
 
-	fmt.Println("going to call initialize pool")
 	// Initialize the connection pool
 	return c.InitializePool()
 }
@@ -87,28 +86,14 @@ func (c *Client) GetRefreshToken() error {
 // GetSchema returns the database schema
 func (c *Client) GetSchema(hideSQL bool, hideSureSQL bool) []orm.SchemaStruct {
 
-	// Since schema returns array of SchemaStruct, first we process as []interface{}
+	// data is the raw JSON array of schema items — decode once.
 	data, err := c.sendRequestToLeader("GET", "/db/api/getschema", nil, true, false)
-	// data, err := c.executeWithConnectionOrFallback("GET", "/db/api/getschema", nil, true)
 	if err != nil {
 		return []orm.SchemaStruct{}
 	}
-
-	// Process schema data
 	var schemaItems []orm.SchemaStruct
-	// Try to handle as direct array first
-	schemaArray, ok := data.([]interface{})
-	if ok {
-		// Process each schema item
-		for _, item := range schemaArray {
-			schemaMap, ok := item.(map[string]interface{})
-			if !ok {
-				continue // skip if not a map, shouldn't happens. QUESTION: maybe need to add error log here?
-			}
-			// Convert map to SchemaStruct using object.MapToStructSlow
-			schemaItem := object.MapToStructSlow[orm.SchemaStruct](schemaMap)
-			schemaItems = append(schemaItems, schemaItem)
-		}
+	if err := json.Unmarshal(data, &schemaItems); err != nil {
+		return []orm.SchemaStruct{}
 	}
 	return schemaItems
 }
@@ -117,7 +102,6 @@ func (c *Client) GetSchema(hideSQL bool, hideSureSQL bool) []orm.SchemaStruct {
 func (c *Client) Status() (orm.NodeStatusStruct, error) {
 	// If we already have a connection, use it
 	// conn := c.getAnyConnection()
-	fmt.Println("Calling status")
 	return sendRequest[orm.NodeStatusStruct](c, "GET", "/db/api/status", nil, IS_READ, NO_REFRESH, FALLBACK_LEADER)
 	// if conn != nil {
 	// 	// Use the connection
@@ -153,14 +137,12 @@ func (c *Client) getStatusWithoutLock() (orm.NodeStatusStruct, error) {
 		return orm.NodeStatusStruct{}, err
 	}
 
-	// need to assert the data of type interface{} into map[string]interface
-	statusData, ok := data.(map[string]interface{})
-	if !ok {
-		return orm.NodeStatusStruct{}, fmt.Errorf("error: unexpected response format")
+	// data is already the raw JSON of the status struct — decode once.
+	var status orm.NodeStatusStruct
+	if err := json.Unmarshal(data, &status); err != nil {
+		return orm.NodeStatusStruct{}, fmt.Errorf("error: unexpected response format: %w", err)
 	}
-
-	// return as struct
-	return object.MapToStruct[orm.NodeStatusStruct](statusData), nil
+	return status, nil
 }
 
 //------------------------------------------------------------------
@@ -594,8 +576,43 @@ func (c *Client) Peers() ([]string, error) {
 	return peers, nil
 }
 
-// Close properly cleans up resources and closes connections
+// Close properly cleans up resources and closes connections.
+// It best-effort tells the engine to release every connection this client
+// holds (/db/api/disconnect per token) so engine-side pool slots are freed
+// immediately instead of lingering until token expiry, then clears local pools.
 func (c *Client) Close() {
+	c.disconnectAll()
 	c.CloseConnections()
 	c.Connected = false
+}
+
+// disconnectAll sends a best-effort /db/api/disconnect for the leader token
+// and every pool connection token. Failures are ignored — the engine expires
+// stale slots anyway — so this never blocks or errors out.
+func (c *Client) disconnectAll() {
+	var conns []*Connection
+	if c.leaderConn != nil {
+		conns = append(conns, c.leaderConn)
+	}
+	conns = append(conns, c.readPool.AllConnections()...)
+	conns = append(conns, c.writePool.AllConnections()...)
+
+	seen := map[string]bool{}
+	for _, conn := range conns {
+		if conn == nil || conn.Token.Token == "" || seen[conn.Token.Token] {
+			continue
+		}
+		seen[conn.Token.Token] = true
+		// Synchronous + best-effort: each disconnect is one quick HTTP call and
+		// Close() is rare (shutdown), so blocking here is fine and reliable for
+		// short-lived CLI clients.
+		req, err := conn.createHttpRequest("POST", "/db/api/disconnect", nil, &c.Config)
+		if err != nil {
+			continue
+		}
+		req.Header.Set("Authorization", "Bearer "+conn.Token.Token)
+		if resp, err := conn.HTTPClient.Do(req); err == nil {
+			resp.Body.Close()
+		}
+	}
 }

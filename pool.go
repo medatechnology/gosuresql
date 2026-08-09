@@ -330,6 +330,19 @@ func (p *ConnectionPool) RemoveIdleConnections(idleTimeout time.Duration, minSiz
 	return removed
 }
 
+// AllConnections returns every connection currently in the pool (no ordering).
+// Used by Close() to release engine-side pool slots for each token.
+func (p *ConnectionPool) AllConnections() []*Connection {
+	p.mutex.RLock()
+	defer p.mutex.RUnlock()
+
+	var all []*Connection
+	for _, conns := range p.nodeConnections {
+		all = append(all, conns...)
+	}
+	return all
+}
+
 // Clear removes all connections from the pool
 func (p *ConnectionPool) Clear() {
 	p.mutex.Lock()
@@ -378,7 +391,6 @@ func (c *Client) InitializePool() error {
 		return fmt.Errorf("failed to get status for pool initialization: %w", err)
 	}
 
-	fmt.Println("Status:", status)
 	c.status = &status
 
 	// If this is called from Connect() which should be only called once, all variables for readPool, writePool and statsPerNode
@@ -386,17 +398,28 @@ func (c *Client) InitializePool() error {
 
 	// Initialize self node pools (should be the leader)
 	// Since the scaleUpNode take in form of connection (for node info like URL, Mode etc) we prepare the empty connection
-	leaderConn := NewConnection(&c.Config, status.URL, status.NodeID, status.Mode, status.IsLeader, suresql.TokenTable{})
+	// The leader is the engine the client was configured to talk to, so its URL
+	// must be Config.ServerURL (the URL /db/connect already used successfully).
+	// status.URL can advertise an address unreachable from the client — e.g.
+	// 0.0.0.0 for a local dev instance — which would make every pool connection
+	// time out. Peers (nodes 2..N) still use their status-provided URLs.
+	leaderURL := c.Config.ServerURL
+	if leaderURL == "" {
+		leaderURL = status.URL
+	}
+	// The connected node (leader, node 1 by contract — Connect() is called
+	// against the master) is the only R/W node: scale it into BOTH pools.
+	leaderConn := NewConnection(&c.Config, leaderURL, status.NodeID, status.Mode, status.IsLeader, suresql.TokenTable{})
 	c.scaleUpNode(leaderConn, IS_WRITE)
 	c.scaleUpNode(leaderConn, IS_READ)
-	// c.initializePoolForNode(status.URL, status.NodeID, status.Mode, status.IsLeader, status.MaxPool)
 
-	// Initialize peer nodes pools
+	// Peers (nodes 2..N) are read-only replicas: scale them into the READ pool
+	// only. Sending a write to a replica makes rqlite 301-redirect to the
+	// leader; Go's http.Client rewrites a 301 on POST to GET, so the write
+	// would fail. All writes MUST target the leader (node 1) directly.
 	for _, peer := range status.Peers {
 		tmpConn := NewConnection(&c.Config, peer.URL, peer.NodeID, peer.Mode, peer.IsLeader, suresql.TokenTable{})
-		c.scaleUpNode(tmpConn, IS_WRITE)
 		c.scaleUpNode(tmpConn, IS_READ)
-		// c.initializePoolForNode(peer.URL, peer.NodeID, peer.Mode, peer.IsLeader, peer.MaxPool)
 	}
 
 	// Start the cleanup timer if not already running
@@ -422,11 +445,10 @@ func (c *Client) getReadConnection() (*Connection, error) {
 		return nil, err
 	}
 
-	// Record usage outside the lock
-	go c.recordNodeUsage(conn.NodeID, IS_READ)
-
-	// Track that a request is beginning
-	go c.beginRequest(conn, IS_READ)
+	// Stats updates are cheap mutex ops — run inline (no goroutine per request).
+	// Scale-up inside beginRequest is already deferred with its own goroutine.
+	c.recordNodeUsage(conn.NodeID, IS_READ)
+	c.beginRequest(conn, IS_READ)
 
 	return conn, nil
 }
@@ -470,11 +492,9 @@ func (c *Client) getWriteConnection() (*Connection, error) {
 		return nil, err
 	}
 
-	// Record usage outside the lock
-	go c.recordNodeUsage(conn.NodeID, IS_WRITE)
-
-	// Track that a request is beginning
-	go c.beginRequest(conn, IS_WRITE)
+	// Stats updates are cheap mutex ops — run inline (no goroutine per request).
+	c.recordNodeUsage(conn.NodeID, IS_WRITE)
+	c.beginRequest(conn, IS_WRITE)
 
 	return conn, nil
 }

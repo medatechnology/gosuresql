@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/medatechnology/goutil/object"
 	"github.com/medatechnology/suresql"
 )
 
@@ -141,39 +140,6 @@ func (c *Client) createAndConnectNewConnection(url, nodeID, mode string, leader 
 // CORE HTTP AND RESPONSE FUNCTIONS
 //------------------------------------------------------------------
 
-// sendHttpRequest is the core HTTP function that all other methods build upon
-// It can work with either the client's HTTPClient or a connection's HTTPClient
-// func (c *Client) sendHttpRequest(httpClient *http.Client, url string, method string,
-// 	endpoint string, data interface{}, authToken string) (*http.Response, error) {
-// 	var body io.Reader
-// 	if data != nil {
-// 		jsonData, err := json.Marshal(data)
-// 		if err != nil {
-// 			return nil, fmt.Errorf("failed to marshal request data: %w", err)
-// 		}
-// 		body = bytes.NewBuffer(jsonData)
-// 	}
-
-// 	fullUrl := url + endpoint
-// 	req, err := http.NewRequest(method, fullUrl, body)
-// 	if err != nil {
-// 		return nil, fmt.Errorf("failed to create request: %w", err)
-// 	}
-
-// 	// Set common headers
-// 	req.Header.Set("Content-Type", "application/json")
-// 	req.Header.Set("API_KEY", c.Config.APIKey)
-// 	req.Header.Set("CLIENT_ID", c.Config.ClientID)
-
-// 	// Set authorization if token provided
-// 	if authToken != "" {
-// 		req.Header.Set("Authorization", "Bearer "+authToken)
-// 	}
-
-// 	// Do the actual HTTP request
-// 	return httpClient.Do(req)
-// }
-
 // Preparing standard request, using APIKEY and CLIENTID
 func (c *Connection) createHttpRequest(method, endpoint string, data interface{}, config *ClientConfig) (*http.Request, error) {
 	var body io.Reader
@@ -214,24 +180,25 @@ func (c *Connection) sendHttpRequest(method, endpoint string, data interface{}, 
 	return c.HTTPClient.Do(req)
 }
 
-// decode the response into StandardResponse which has status and then check if it's not OK
-// If it's OK then return just the Data part.
-func (c *Connection) getAndCheckResponseData(resp *http.Response) (interface{}, error) {
+// decode the response envelope; on success returns the raw JSON bytes of
+// `data` so callers decode ONCE into their concrete type (no intermediate
+// map[string]interface{} + re-marshal round trip).
+func (c *Connection) getAndCheckResponseData(resp *http.Response) ([]byte, error) {
 	defer resp.Body.Close()
-	// if resp.StatusCode != http.StatusOK {
-	// 	return nil, fmt.Errorf("request error: %s", resp.Status)
-	// }
-	var result suresql.StandardResponse
-	err := json.NewDecoder(resp.Body).Decode(&result)
-	if err != nil {
+	var env struct {
+		Status  int             `json:"status"`
+		Message string          `json:"message"`
+		Data    json.RawMessage `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&env); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
-	if result.Status != http.StatusOK {
-		return nil, fmt.Errorf("request error: %s", result.Message)
+	if env.Status != http.StatusOK {
+		return nil, fmt.Errorf("request error: %s", env.Message)
 	}
 
-	return result.Data, nil
+	return env.Data, nil
 }
 
 // Just repetitive check for sending http request withToken==true, then it will check first if token exist
@@ -244,89 +211,9 @@ func (c *Connection) getAndCheckToken(withToken bool) error {
 	return nil
 }
 
-// NOTE: might not needed.
-// func getAndCheckResponseData(resp *http.Response) (interface{}, error) {
-// 	defer resp.Body.Close()
-// 	// if resp.StatusCode != http.StatusOK {
-// 	// 	return nil, fmt.Errorf("request error: %s", resp.Status)
-// 	// }
-// 	var result suresql.StandardResponse
-// 	err := json.NewDecoder(resp.Body).Decode(&result)
-// 	if err != nil {
-// 		return nil, fmt.Errorf("failed to decode response: %w", err)
-// 	}
-
-// 	if result.Status != http.StatusOK {
-// 		return nil, fmt.Errorf("request error: %s", result.Message)
-// 	}
-
-// 	return result.Data, nil
-// }
-
-// decodeResponse processes an HTTP response into the standard format
-// This centralizes all response decoding in one place, returning only result.Data
-// func decodeResponse(resp *http.Response) (interface{}, error) {
-// 	defer resp.Body.Close()
-
-// 	var result suresql.StandardResponse
-// 	err := json.NewDecoder(resp.Body).Decode(&result)
-// 	if err != nil {
-// 		return nil, fmt.Errorf("failed to decode response: %w", err)
-// 	}
-
-// 	if result.Status != http.StatusOK {
-// 		return nil, fmt.Errorf("request error: %s", result.Message)
-// 	}
-
-// 	return result.Data, nil
-// }
-
 //------------------------------------------------------------------
 // CONNECTION MANAGEMENT
 //------------------------------------------------------------------
-
-// connectToPeer establishes a connection to a peer node
-// func (c *Client) connectToPeer(peer orm.StatusStruct) (*Connection, error) {
-// 	client := &http.Client{Timeout: c.HTTPClient.Timeout}
-
-// 	resp, err := c.sendHttpRequest(client, peer.URL, "POST", "/db/connect", c.userCredentials("", ""), "")
-// 	if err != nil {
-// 		return nil, fmt.Errorf("connection to peer failed: %w", err)
-// 	}
-
-// 	// Process response
-// 	data, err := decodeResponse(resp)
-// 	if err != nil {
-// 		return nil, fmt.Errorf("failed to decode peer connect response: %w", err)
-// 	}
-
-// 	// Extract token from response
-// 	tokenData, ok := data.(map[string]interface{})
-// 	if !ok {
-// 		return nil, errors.New("unexpected response format from peer")
-// 	}
-
-// 	tokenObj := object.MapToStructSlow[suresql.TokenTable](tokenData)
-
-// 	if tokenObj.Token == "" {
-// 		return nil, errors.New("token not found in peer response")
-// 	}
-
-// 	now := time.Now()
-// 	conn := &Connection{
-// 		URL:         peer.URL,
-// 		Token:       tokenObj,
-// 		NodeID:      peer.NodeID,
-// 		IsLeader:    peer.IsLeader,
-// 		Mode:        peer.Mode,
-// 		HTTPClient:  client,
-// 		LastUsed:    now,
-// 		Created:     now,
-// 		LastRefresh: now,
-// 	}
-
-// 	return conn, nil
-// }
 
 // For existing connection (maybe when call send it failed) try to renew the token by:
 // 1. First try to refresh using refresh token, if succeed then exit.
@@ -388,173 +275,17 @@ func (c *Connection) newOrRefreshToken(config *ClientConfig, refresh bool) error
 
 	c.Token = tokenObj
 	c.LastRefresh = time.Now()
-	fmt.Printf("Connection: %s=%s, get new token:%s\n", c.NodeID, c.URL, c.Token.Token)
 	return nil
 }
 
-// Data is already extracted from StandardResponse.Data , convert to map first then to struct
-func convertDataToToken(data interface{}) (suresql.TokenTable, error) {
-	// Extract token from response
-	tokenData, ok := data.(map[string]interface{})
-	if !ok {
-		return suresql.TokenTable{}, errors.New("unexpected response format")
+// convertDataToToken unmarshals the raw `data` JSON bytes into a TokenTable.
+func convertDataToToken(data []byte) (suresql.TokenTable, error) {
+	var tokenObj suresql.TokenTable
+	if err := json.Unmarshal(data, &tokenObj); err != nil {
+		return tokenObj, fmt.Errorf("unexpected response format: %w", err)
 	}
-
-	tokenObj := object.MapToStructSlow[suresql.TokenTable](tokenData)
-
 	if tokenObj.Token == "" || tokenObj.Refresh == "" {
 		return tokenObj, errors.New("token not found in response")
 	}
 	return tokenObj, nil
 }
-
-// refreshConnection attempts to refresh a connection's token
-// func (c *Client) refreshConnection(conn *Connection) error {
-// 	if conn.Token.Refresh == "" {
-// 		return errors.New("no refresh token available for connection")
-// 	}
-
-// 	refreshReq := map[string]string{
-// 		"refresh_token": conn.Token.Refresh,
-// 	}
-
-// 	resp, err := c.sendHttpRequest(conn.HTTPClient, conn.URL, "POST", "/db/refresh", refreshReq, "")
-// 	if err != nil {
-// 		return fmt.Errorf("refresh request failed: %w", err)
-// 	}
-
-// 	// Process response
-// 	data, err := decodeResponse(resp)
-// 	if err != nil {
-// 		return fmt.Errorf("failed to decode refresh response: %w", err)
-// 	}
-
-// 	// Extract token from response
-// 	tokenData, ok := data.(map[string]interface{})
-// 	if !ok {
-// 		return errors.New("unexpected response format")
-// 	}
-
-// 	tokenObj := object.MapToStructSlow[suresql.TokenTable](tokenData)
-
-// 	if tokenObj.Token == "" {
-// 		return errors.New("token not found in response")
-// 	}
-
-// 	conn.Token = tokenObj
-// 	conn.LastRefresh = time.Now()
-// 	return nil
-// }
-
-// createNewConnection creates a new connection to a node
-// func (c *Client) createNewConnection(nodeURL, nodeID string, isLeader bool, mode string) (*Connection, error) {
-// 	// Create a new HTTP client
-// 	client := &http.Client{Timeout: c.Config.HTTPTimeout}
-// 	if client.Timeout == 0 {
-// 		client.Timeout = DefaultTimeout
-// 	}
-
-// 	resp, err := c.sendHttpRequest(client, nodeURL, "POST", "/db/connect", c.userCredentials("", ""), "")
-// 	if err != nil {
-// 		return nil, fmt.Errorf("connection failed: %w", err)
-// 	}
-
-// 	// Process response
-// 	data, err := decodeResponse(resp)
-// 	if err != nil {
-// 		return nil, fmt.Errorf("failed to decode connect response: %w", err)
-// 	}
-
-// 	// Extract token from response
-// 	tokenData, ok := data.(map[string]interface{})
-// 	if !ok {
-// 		return nil, errors.New("unexpected response format")
-// 	}
-
-// 	tokenObj := object.MapToStructSlow[suresql.TokenTable](tokenData)
-
-// 	if tokenObj.Token == "" {
-// 		return nil, errors.New("token not found in response")
-// 	}
-
-// 	now := time.Now()
-// 	conn := &Connection{
-// 		URL:         nodeURL,
-// 		Token:       tokenObj,
-// 		NodeID:      nodeID,
-// 		IsLeader:    isLeader,
-// 		Mode:        mode,
-// 		HTTPClient:  client,
-// 		LastUsed:    now,
-// 		Created:     now,
-// 		LastRefresh: now,
-// 	}
-
-// 	return conn, nil
-// }
-
-// To simplify other code that need this checks.
-// Usage:
-//
-// token, err := getAndCheckToken(requiresAuth, conn)
-//
-//	if err != nil {
-//	  return nil, err
-//	}
-
-// sendConnectionRequest sends a request using a specific connection
-// It handles connection-specific token refresh and failures
-// func (c *Client) sendConnectionRequest(conn *Connection, method, endpoint string,
-// 	data interface{}, requiresAuth bool) (interface{}, error) {
-// 	if conn == nil {
-// 		return nil, errors.New("no DB connection")
-// 	}
-
-// 	// Determine token to use
-// 	token, err := conn.getAndCheckToken(requiresAuth)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-
-// 	// Send the request
-// 	resp, err := c.sendHttpRequest(conn.HTTPClient, conn.URL, method, endpoint, data, token)
-// 	if err != nil || resp.StatusCode == http.StatusUnauthorized {
-// 		// Handle connection failure
-// 		newConn, refreshErr := c.handleConnectionFailure(conn,
-// 			method != "POST" || (endpoint != "/db/api/sql" && endpoint != "/db/api/insert"))
-// 		if refreshErr != nil {
-// 			return nil, fmt.Errorf("request failed and couldn't recover connection: %w", err)
-// 		}
-
-// 		// Retry with new connection
-// 		return c.sendConnectionRequest(newConn, method, endpoint, data, requiresAuth)
-// 	}
-
-// 	// Handle 401 Unauthorized by refreshing token and retrying
-// 	if resp.StatusCode == http.StatusUnauthorized && requiresAuth {
-// 		resp.Body.Close()
-
-// 		// Try to refresh the connection's token
-// 		err = c.refreshConnection(conn)
-// 		if err != nil {
-// 			// If refresh fails, try to create a new connection
-// 			newConn, refreshErr := c.handleConnectionFailure(conn,
-// 				method != "POST" || (endpoint != "/db/api/sql" && endpoint != "/db/api/insert"))
-// 			if refreshErr != nil {
-// 				return nil, fmt.Errorf("token refresh failed and couldn't recover connection: %w", err)
-// 			}
-
-// 			// Retry with new connection
-// 			return c.sendConnectionRequest(newConn, method, endpoint, data, requiresAuth)
-// 		}
-
-// 		// Retry with refreshed token
-// 		return c.sendConnectionRequest(conn, method, endpoint, data, requiresAuth)
-// 	}
-
-// 	// Update the last used time
-// 	conn.LastUsed = time.Now()
-
-// 	// Process response
-// 	return decodeResponse(resp)
-// }

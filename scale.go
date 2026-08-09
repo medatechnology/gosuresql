@@ -150,7 +150,8 @@ func (c *Client) scaleUpNode(conn *Connection, isWrite bool) {
 	}
 }
 
-// markRequestComplete indicates a request is complete on a connection
+// markRequestComplete indicates a request is complete on a connection.
+// Runs inline — endRequest is a cheap mutex op, no goroutine per request.
 func (c *Client) markRequestComplete(conn *Connection, isWrite bool) {
-	go c.endRequest(conn.NodeID, isWrite)
+	c.endRequest(conn.NodeID, isWrite)
 }
