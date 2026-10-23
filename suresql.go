@@ -145,6 +145,45 @@ func (c *Client) getStatusWithoutLock() (orm.NodeStatusStruct, error) {
 	return status, nil
 }
 
+// ClusterNodeCount returns the total number of known nodes in the cluster (1 for standalone).
+func (c *Client) ClusterNodeCount() int {
+	if c.status == nil {
+		return 1
+	}
+	return len(c.status.Peers) + 1
+}
+
+// IsCluster reports whether the client is connected to a multi-node cluster with replicas.
+func (c *Client) IsCluster() bool {
+	if c.status == nil {
+		return false
+	}
+	return len(c.status.Peers) > 0
+}
+
+// GetLeaderURL returns the URL of the active write leader.
+func (c *Client) GetLeaderURL() string {
+	if c.status == nil {
+		return c.Config.ServerURL
+	}
+	if c.status.Leader != "" {
+		return c.status.Leader
+	}
+	return c.Config.ServerURL
+}
+
+// GetReplicaURLs returns the URLs of all read replica nodes.
+func (c *Client) GetReplicaURLs() []string {
+	if c.status == nil || len(c.status.Peers) == 0 {
+		return nil
+	}
+	urls := make([]string, 0, len(c.status.Peers))
+	for _, p := range c.status.Peers {
+		urls = append(urls, p.URL)
+	}
+	return urls
+}
+
 //------------------------------------------------------------------
 // ORM QUERY METHODS
 //------------------------------------------------------------------

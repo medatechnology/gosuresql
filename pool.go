@@ -407,21 +407,21 @@ func (c *Client) InitializePool() error {
 	if leaderURL == "" {
 		leaderURL = status.URL
 	}
-	// The connected node (leader, node 1 by contract — Connect() is called
-	// against the master) is the only R/W node: scale it into BOTH pools.
+	// In multi-node clusters, route ALL writes to the leader and ALL reads to replicas.
+	// Master CPU remains dedicated to write transactions.
 	leaderConn := NewConnection(&c.Config, leaderURL, status.NodeID, status.Mode, status.IsLeader, suresql.TokenTable{})
 	c.scaleUpNode(leaderConn, IS_WRITE)
-	c.scaleUpNode(leaderConn, IS_READ)
 
-	// Peers (nodes 2..N) are read-only replicas: scale them into the READ pool
-	// only. Sending a write to a replica makes rqlite 301-redirect to the
-	// leader; Go's http.Client rewrites a 301 on POST to GET, so the write
-	// would fail. All writes MUST target the leader (node 1) directly.
-	for _, peer := range status.Peers {
-		tmpConn := NewConnection(&c.Config, peer.URL, peer.NodeID, peer.Mode, peer.IsLeader, suresql.TokenTable{})
-		c.scaleUpNode(tmpConn, IS_READ)
+	if len(status.Peers) == 0 {
+		// Standalone / Singular mode: single node handles both writes and reads
+		c.scaleUpNode(leaderConn, IS_READ)
+	} else {
+		// Cluster mode: populate READ pool strictly with non-master replica peers
+		for _, peer := range status.Peers {
+			tmpConn := NewConnection(&c.Config, peer.URL, peer.NodeID, peer.Mode, peer.IsLeader, suresql.TokenTable{})
+			c.scaleUpNode(tmpConn, IS_READ)
+		}
 	}
-
 	// Start the cleanup timer if not already running
 	if c.cleanupTimer == nil {
 		c.startCleanupTimer()
@@ -436,6 +436,10 @@ func (c *Client) getReadConnection() (*Connection, error) {
 	if c.readPool.Size() == 0 {
 		err := c.InitializePool()
 		if err != nil || c.readPool.Size() == 0 {
+			// Fallback to leader if all replicas are down or pool empty
+			if c.leaderConn != nil {
+				return c.leaderConn, nil
+			}
 			return nil, errors.New("no read connections available")
 		}
 	}
