@@ -744,6 +744,95 @@ if err != nil {
 fmt.Printf("Cluster has %d peer nodes\n", len(peers))
 ```
 
+#### `ClusterNodeCount() int`
+
+Returns the total number of active nodes in the cluster (1 if standalone).
+
+#### `IsCluster() bool`
+
+Returns `true` if connected to a multi-node cluster with read replicas, or `false` if running as a single standalone node.
+
+#### `GetLeaderURL() string`
+
+Returns the URL of the active write leader.
+
+#### `GetReplicaURLs() []string`
+
+Returns the URLs of all read replica nodes. Reads automatically round-robin across these nodes.
+
+---
+
+## 🧬 AI Vectors & Similarity Search
+
+SureSQL natively supports binary BLOBs and AI vector embeddings (e.g. from OpenAI, Cohere, local models, or `sqlite-vec`). The SDK provides zero-copy serialization helpers:
+
+```go
+// 1. Convert float32 vector embedding to binary BLOB (IEEE 754 little-endian)
+embedding := []float32{0.045, -0.128, 0.982, 0.312}
+blob := client.VectorToBlob(embedding)
+
+// 2. Insert into database table
+c.ExecOneSQLParameterized(orm.ParamSQL{
+	Query:  "INSERT INTO items (name, embedding) VALUES (?, ?)",
+	Values: []interface{}{"item-1", blob},
+})
+
+// 3. Decode binary BLOB back to []float32
+records, _ := c.SelectOneSQL("SELECT embedding FROM items WHERE name = 'item-1'")
+if rawBlob, ok := records[0].Data["embedding"].([]byte); ok {
+	vec, err := client.BlobToVector(rawBlob)
+	fmt.Println("Decoded vector:", vec)
+}
+
+// 4. Compute vector distances in memory
+distCosine, _ := client.VectorDistanceCosine(vecA, vecB) // 0.0 = identical direction
+distL2, _     := client.VectorDistanceL2(vecA, vecB)     // Euclidean distance
+```
+
+---
+
+## 🔒 Table-Level Granular RBAC
+
+SureSQL enforces zero-latency in-memory Access Control Lists (ACL) per database user:
+
+- **Roles**: `admin` (full DDL + DML access), `rw` (read/write on specific tables), `ro` (read-only on specific tables).
+- **Enforcement**: Checked before queries reach SQLite. Any query touching unauthorized tables or engine-internal `_`-prefixed tables is rejected immediately with HTTP 403 Forbidden.
+
+```go
+// Connecting as finance team
+financeClient, _ := client.NewClient(client.ClientConfig{
+	ServerURL: "http://127.0.0.1:8080",
+	APIKey:    "my-api-key",
+	ClientID:  "my-client-id",
+})
+financeClient.Connect("finance_user", "password123")
+
+// Allowed: finance has write access to invoice
+financeClient.ExecOneSQL("INSERT INTO invoice (amount) VALUES (500)")
+
+// Denied (HTTP 403): finance only has read-only access to orders
+res := financeClient.ExecOneSQL("DELETE FROM orders WHERE id = 1")
+// res.Error => "user 'finance_user' has no write access to table 'orders'"
+```
+
+---
+
+## ⚡ Stress & Concurrency Testing Tool
+
+A standalone high-concurrency stress test tool is included under `stress/`:
+
+```bash
+# Run with 100 concurrent workers performing 10,000 queries
+SURESQL_SERVER_URL=http://127.0.0.1:18080 \
+SURESQL_API_KEY=DEVKEYS \
+SURESQL_CLIENT_ID=local \
+SURESQL_USERNAME=admin \
+SURESQL_PASSWORD=password123 \
+WORKERS=100 \
+TOTAL_OPS=10000 \
+go run ./stress
+```
+
 ## 🗂️ Migrations
 
 Run schema migration files (SQL) from a directory — for example the initial
